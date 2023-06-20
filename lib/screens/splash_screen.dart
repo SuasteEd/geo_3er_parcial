@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geo_3er_parcial/controllers/data_controller.dart';
 import 'package:geo_3er_parcial/controllers/shared_prefs.dart';
 import 'package:geo_3er_parcial/screens/home_screen.dart';
+import 'package:geo_3er_parcial/screens/init_screen.dart';
 import 'package:geo_3er_parcial/services/api_services.dart';
 import 'package:get/get.dart';
 import 'package:lottie/lottie.dart';

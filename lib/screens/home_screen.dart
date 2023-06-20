@@ -10,6 +10,7 @@ import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'package:geo_3er_parcial/services/api_services.dart';
 import 'package:geo_3er_parcial/widgets/custom_text_form_field.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../services/directions_service.dart';
 import '../services/location_service.dart';
 import '../utils/utils.dart';
 
@@ -23,6 +24,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   //Intancia de API
   final _apiService = ApiService();
+  final _directionsService = DirectionsService();
   bool _search = false;
   Marker _currentMarker = const Marker(markerId: MarkerId('currentLocation'));
   final _formKey = GlobalKey<FormState>();
@@ -33,9 +35,19 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<Polygon> _polygons = <Polygon>{};
   final Set<Polyline> _polylines = <Polyline>{};
   final List<LatLng> _polygonLatLngs = <LatLng>[];
+  late GoogleMapController _mapController;
+  List<LatLng> latLngs = [];
   int _polygonIdCounter = 1;
   int _polylineIdCounter = 1;
   int _markerIdCounter = 1;
+
+  var sucursaleZ = [
+    LatLng(21.148118, -101.709106),
+    LatLng(21.110816, -101.644262),
+    LatLng(21.122750, -101.681432),
+    LatLng(21.1578089, -101.6977696),
+    LatLng(21.1503355, -101.7131759)
+  ];
 
   final Completer<GoogleMapController> _controller =
       Completer<GoogleMapController>();
@@ -50,11 +62,65 @@ class _HomeScreenState extends State<HomeScreen> {
     final data = await _apiService.getBranches();
     List<dynamic> branches = json.decode(data);
     _updateMarkers(branches);
-    _setPolyline(branches
-        .map((branch) => PointLatLng(double.parse(branch['latitude']),
-            double.parse(branch['longitude'])))
-        .toList());
-   // _setPolygon();
+    fillLatLngs(branches);
+    // _setPolyline(branches
+    //     .map((branch) => PointLatLng(double.parse(branch['latitude']),
+    //         double.parse(branch['longitude'])))
+    //     .toList());
+    // _setPolygon();
+  }
+
+  void fillLatLngs(List<dynamic> branches) {
+    for (var branch in branches) {
+      final latitude = double.parse(branch['latitude']);
+      final longitude = double.parse(branch['longitude']);
+      latLngs.add(LatLng(latitude, longitude));
+    }
+  }
+
+  final Set<Polygon> _polygonz = {};
+
+  ///CrearPoligono inicial a partir de las sucursales que se encontraron
+  Future<Polygon> addFirstPolygon(
+      List<LatLng> sucursales, GoogleMapController controller) async {
+
+    var margin = .005;
+    double minLat = sucursales
+            .map((point) => point.latitude)
+            .reduce((min, value) => value < min ? value : min) -
+        margin;
+
+    double maxLat = sucursales
+            .map((point) => point.latitude)
+            .reduce((max, value) => value > max ? value : max) +
+        margin;
+
+    double minLng = sucursales
+            .map((point) => point.longitude)
+            .reduce((min, value) => value < min ? value : min) -
+        margin;
+
+    double maxLng = sucursales
+            .map((point) => point.longitude)
+            .reduce((max, value) => value > max ? value : max) +
+        margin;
+    await Future.delayed(Duration(milliseconds: 1000));
+    await controller.moveCamera(CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+            southwest: LatLng(minLat - margin, minLng - margin),
+            northeast: LatLng(maxLat + margin, maxLng + margin)),
+        margin));
+    return Polygon(
+        polygonId: PolygonId("Borders"),
+        fillColor: Color.fromARGB(23, 166, 4, 253),
+        strokeColor: Color.fromARGB(255, 95, 85, 100),
+        strokeWidth: 2,
+        points: [
+          LatLng(minLat, minLng),
+          LatLng(minLat, maxLng),
+          LatLng(maxLat, maxLng),
+          LatLng(maxLat, minLng),
+        ]);
   }
 
   @override
@@ -72,9 +138,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             markers: _markers..add(_currentMarker),
             polylines: _polylines,
-            //polygons: _polygons,
-            onMapCreated: (GoogleMapController controller) {
+            polygons: _polygonz,
+            onMapCreated: (GoogleMapController controller) async {
               _controller.complete(controller);
+              _mapController = controller;
+              _polygonz.add(await addFirstPolygon(sucursaleZ, _mapController));
+              setState(() {});
             },
           ),
           Positioned(
@@ -92,7 +161,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           _search = !_search;
                         });
                       },
-                      onTapSearchButton: () {},
+                      onTapSearchButton: () async {
+                        var place = await LocationService()
+                            .getPlace(_searchController.text);
+                        _userLocation(place);
+                      },
                     )
                   : AnimatedContainer(
                       curve: Curves.easeIn,
@@ -120,8 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               },
                               onTapSearchButton: () async {
                                 if (_formKey.currentState!.validate()) {
-                                 await _goToTheCoordinates();
-                               
+                                  await _goToTheCoordinates();
                                 }
                               },
                             ),
@@ -136,11 +208,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                   _search = !_search;
                                 });
                               },
-                              onTapSearchButton: () {
+                              onTapSearchButton: () async {
                                 if (_formKey.currentState!.validate()) {
                                   print('Latitud: ${_originController.text}');
                                   print(
                                       'Longitud: ${_destinationController.text}');
+                                  await _goToTheCoordinates();
                                 }
                               },
                             ),
@@ -152,6 +225,53 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       //floatingActionButton: MenuSpeedDial(),
     );
+  }
+
+  void _userLocation(Map<String, dynamic> place) async {
+    setState(() {
+      _polylines.clear();
+    });
+    final double lat = place['geometry']['location']['lat'];
+    final double lng = place['geometry']['location']['lng'];
+
+    final CameraPosition cameraPosition = CameraPosition(
+      target: LatLng(lat, lng),
+      zoom: 12,
+    );
+    final GoogleMapController controller = await _controller.future;
+    controller.animateCamera(CameraUpdate.newCameraPosition(cameraPosition));
+    _findNearestBranch(LatLng(lat, lng));
+    setState(() {
+      _currentMarker = Marker(
+        markerId: const MarkerId('currentLocation'),
+        position: LatLng(lat, lng),
+        infoWindow: const InfoWindow(title: 'Mi ubicación'),
+        icon: BitmapDescriptor.defaultMarker,
+      );
+    });
+  }
+
+  void _findNearestBranch(LatLng origin) async {
+    // for(var i in latLngs) {
+    final coordinates = await DirectionsService.calculateRoute(origin, latLngs);
+    _drawRoutes(origin, coordinates);
+    // }
+  }
+
+  // Dibujar las rutas
+  void _drawRoutes(LatLng source, List<LatLng> destinations) {
+    LatLng previousDestination = source;
+
+    for (int i = 0; i < destinations.length; i++) {
+      LatLng destination = destinations[i];
+      _createRoute(previousDestination, destination);
+      previousDestination = destination;
+
+      if (i == destinations.length - 1) {
+        // Última sucursal, dibujar ruta de regreso a la ubicación original
+        _createRoute(destination, source);
+      }
+    }
   }
 
   Future<void> _goToTheCoordinates() async {
@@ -166,28 +286,8 @@ class _HomeScreenState extends State<HomeScreen> {
         LatLng(double.parse(_originController.text),
             double.parse(_destinationController.text)),
         BitmapDescriptor.defaultMarker);
-  }
-
-  Future<void> _goToPlace(
-    double lat,
-    double lng,
-    Map<String, dynamic> boundsNe,
-    Map<String, dynamic> boundsSw,
-  ) async {
-    // final double lat = place['geometry']['location']['lat'];
-    // final double lng = place['geometry']['location']['lng'];
-    final GoogleMapController controller = await _controller.future;
-    CameraPosition kPlaceCameraPosition =
-        CameraPosition(target: LatLng(lat, lng), zoom: 12);
-    controller.animateCamera(CameraUpdate.newCameraPosition(
-      kPlaceCameraPosition,
-    ));
-    controller.animateCamera(CameraUpdate.newLatLngBounds(
-        LatLngBounds(
-            southwest: LatLng(boundsSw['lat'], boundsSw['lng']),
-            northeast: LatLng(boundsNe['lat'], boundsNe['lng'])),
-        25));
-    _setMarker(LatLng(lat, lng), BitmapDescriptor.defaultMarker);
+    _findNearestBranch(LatLng(double.parse(_originController.text),
+        double.parse(_destinationController.text)));
   }
 
   void _setMarker(LatLng point, BitmapDescriptor icon) {
@@ -205,7 +305,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _createRoute(LatLng origin, LatLng destination) async {
-     PolylinePoints polylinePoints = PolylinePoints();
+    PolylinePoints polylinePoints = PolylinePoints();
     List<LatLng> result = [];
 
     PolylineResult polylineResult =
@@ -217,10 +317,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (polylineResult.points.isNotEmpty) {
-      polylineResult.points.forEach((PointLatLng point) {
+      for (var point in polylineResult.points) {
         result.add(LatLng(point.latitude, point.longitude));
-      });
+      }
     }
+    setState(() {
+      _polylines.add(Polyline(
+        polylineId: PolylineId('route$_polylineIdCounter'),
+        points: result,
+        color: Colors.yellowAccent,
+        width: 5,
+      ));
+      _polylineIdCounter++;
+    });
   }
 
   void _updateMarkers(List<dynamic> branches) async {
@@ -277,31 +386,31 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 //CALCULAR DISTANCIA ENTRE DOS PUNTOS
-  double _calculateDistance(LatLng origin, LatLng destination) {
-    double lat1 = origin.latitude;
-    double lng1 = origin.longitude;
-    double lat2 = destination.latitude;
-    double lng2 = destination.longitude;
+double _calculateDistance(LatLng origin, LatLng destination) {
+  double lat1 = origin.latitude;
+  double lng1 = origin.longitude;
+  double lat2 = destination.latitude;
+  double lng2 = destination.longitude;
 
-    const int radius = 6371;
+  const int radius = 6371;
 
-    double dLat = _degreesToRadians(lat2 - lat1);
-    double dLng = _degreesToRadians(lng2 - lng1);
+  double dLat = _degreesToRadians(lat2 - lat1);
+  double dLng = _degreesToRadians(lng2 - lng1);
 
-    double a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_degreesToRadians(lat1)) *
-            cos(_degreesToRadians(lat2)) *
-            sin(dLng / 2) *
-            sin(dLng / 2);
-    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    double distance = radius * c;
+  double a = sin(dLat / 2) * sin(dLat / 2) +
+      cos(_degreesToRadians(lat1)) *
+          cos(_degreesToRadians(lat2)) *
+          sin(dLng / 2) *
+          sin(dLng / 2);
+  double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  double distance = radius * c;
 
-    return distance;
-  }
+  return distance;
+}
 
-  double _degreesToRadians(double degrees) {
-    return degrees * (pi / 180);
-  }
+double _degreesToRadians(double degrees) {
+  return degrees * (pi / 180);
+}
 
 class MenuSpeedDial extends StatelessWidget {
   const MenuSpeedDial({
