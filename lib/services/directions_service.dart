@@ -5,7 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
 // class DirectionsService {
-//   static Future<String> calculateRoute(LatLng origin, LatLng destination) async { 
+//   static Future<String> calculateRoute(LatLng origin, LatLng destination) async {
 //     String apiKey = ApiConstants.key;
 //     String url = 'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=$apiKey';
 
@@ -59,9 +59,9 @@ import 'package:http/http.dart' as http;
 //   }
 // }
 
-
 class DirectionsService {
-  static Future<List<LatLng>> calculateRoute(LatLng origin, List<LatLng> destinations) async {
+  static Future<List<LatLng>> calculateRoute(
+      LatLng origin, List<LatLng> destinations) async {
     String apiKey = ApiConstants.key;
 
     List<LatLng> closestCoordinates = [];
@@ -69,7 +69,8 @@ class DirectionsService {
     // Calcular las distancias desde el punto de partida a todas las sucursales
     List<double> distances = [];
     for (LatLng destination in destinations) {
-      String url = 'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=$apiKey';
+      String url =
+          'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=$apiKey';
 
       var response = await http.get(Uri.parse(url));
 
@@ -106,5 +107,51 @@ class DirectionsService {
 
     return closestCoordinates;
   }
-}
 
+  static Future<String> calculateTime(
+      LatLng origin, List<LatLng> destinations) async {
+    String apiKey = ApiConstants.key;
+
+    // Calcular los tiempos desde el punto de partida a todas las sucursales
+    List<double> times = [];
+    for (LatLng destination in destinations) {
+      String url =
+          'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=$apiKey';
+
+      var response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        var data = json.decode(response.body);
+        final time = data['routes'][0]['legs'][0]['duration']['text'];
+
+        times.add(double.parse(time.split(' ')[0]) + 30);
+      } else {
+        throw Exception('Error en la solicitud de dirección');
+      }
+    }
+
+    // Obtener los índices de las 3 sucursales con menor tiempo
+    // List<int> closestIndices = [];
+    // for (int i = 0; i < times.length; i++) {
+    //   if (closestIndices.length < 3) {
+    //     closestIndices.add(i);
+    //   } else {
+    //     // Reemplazar el índice del elemento con mayor tiempo si se encuentra uno menor
+    //     for (int j = 0; j < closestIndices.length; j++) {
+    //       if (times[i] < times[closestIndices[j]]) {
+    //         closestIndices[j] = i;
+    //         break;
+    //       }
+    //     }
+    //   }
+    // }
+
+    // Obtener las coordenadas de las 3 sucursales más cercanas
+    int tiempo = 0;
+    for(var i in times){
+      tiempo += i.toInt();
+    }
+
+    return tiempo.toString();
+  }
+}

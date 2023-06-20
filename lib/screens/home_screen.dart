@@ -9,6 +9,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'package:geo_3er_parcial/services/api_services.dart';
 import 'package:geo_3er_parcial/widgets/custom_text_form_field.dart';
+import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/directions_service.dart';
 import '../services/location_service.dart';
@@ -24,7 +25,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   //Intancia de API
   final _apiService = ApiService();
-  final _directionsService = DirectionsService();
   bool _search = false;
   Marker _currentMarker = const Marker(markerId: MarkerId('currentLocation'));
   final _formKey = GlobalKey<FormState>();
@@ -32,16 +32,14 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _originController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
   final Set<Marker> _markers = <Marker>{};
-  final Set<Polygon> _polygons = <Polygon>{};
   final Set<Polyline> _polylines = <Polyline>{};
-  final List<LatLng> _polygonLatLngs = <LatLng>[];
   late GoogleMapController _mapController;
+  final Set<Polygon> _polygonz = {};
   List<LatLng> latLngs = [];
-  int _polygonIdCounter = 1;
   int _polylineIdCounter = 1;
   int _markerIdCounter = 1;
 
-  var sucursaleZ = [
+  var sucursaleZ = const [
     LatLng(21.148118, -101.709106),
     LatLng(21.110816, -101.644262),
     LatLng(21.122750, -101.681432),
@@ -63,11 +61,6 @@ class _HomeScreenState extends State<HomeScreen> {
     List<dynamic> branches = json.decode(data);
     _updateMarkers(branches);
     fillLatLngs(branches);
-    // _setPolyline(branches
-    //     .map((branch) => PointLatLng(double.parse(branch['latitude']),
-    //         double.parse(branch['longitude'])))
-    //     .toList());
-    // _setPolygon();
   }
 
   void fillLatLngs(List<dynamic> branches) {
@@ -78,12 +71,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  final Set<Polygon> _polygonz = {};
-
   ///CrearPoligono inicial a partir de las sucursales que se encontraron
   Future<Polygon> addFirstPolygon(
       List<LatLng> sucursales, GoogleMapController controller) async {
-
     var margin = .005;
     double minLat = sucursales
             .map((point) => point.latitude)
@@ -104,16 +94,16 @@ class _HomeScreenState extends State<HomeScreen> {
             .map((point) => point.longitude)
             .reduce((max, value) => value > max ? value : max) +
         margin;
-    await Future.delayed(Duration(milliseconds: 1000));
+    await Future.delayed(const Duration(milliseconds: 1000));
     await controller.moveCamera(CameraUpdate.newLatLngBounds(
         LatLngBounds(
             southwest: LatLng(minLat - margin, minLng - margin),
             northeast: LatLng(maxLat + margin, maxLng + margin)),
         margin));
     return Polygon(
-        polygonId: PolygonId("Borders"),
-        fillColor: Color.fromARGB(23, 166, 4, 253),
-        strokeColor: Color.fromARGB(255, 95, 85, 100),
+        polygonId: const PolygonId("Borders"),
+        fillColor: Colors.black.withOpacity(0.1),
+        strokeColor: Colors.black.withOpacity(0.5),
         strokeWidth: 2,
         points: [
           LatLng(minLat, minLng),
@@ -253,8 +243,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _findNearestBranch(LatLng origin) async {
     // for(var i in latLngs) {
+
     final coordinates = await DirectionsService.calculateRoute(origin, latLngs);
     _drawRoutes(origin, coordinates);
+    final tiempo = await DirectionsService.calculateTime(origin, coordinates);
+    Get.snackbar('Tiempo', 'Tiempo total del trayecto: $tiempo minutos', backgroundColor: Colors.amber, duration: Duration(seconds: 10));
     // }
   }
 
@@ -325,7 +318,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _polylines.add(Polyline(
         polylineId: PolylineId('route$_polylineIdCounter'),
         points: result,
-        color: Colors.yellowAccent,
+        color: Colors.blue,
         width: 5,
       ));
       _polylineIdCounter++;
@@ -333,7 +326,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _updateMarkers(List<dynamic> branches) async {
-    ByteData imageData = await rootBundle.load('assets/images/marker.gif');
+    ByteData imageData = await rootBundle.load('assets/images/marker.png');
+
     BitmapDescriptor customMarker =
         BitmapDescriptor.fromBytes(imageData.buffer.asUint8List());
 
@@ -357,59 +351,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _markers.add(_currentMarker);
     });
   }
-
-  void _setPolygon() {
-    final String polygonIdVal = 'polygon_$_polygonIdCounter';
-    _polygonIdCounter++;
-    _polygons.add(Polygon(
-      polygonId: PolygonId(polygonIdVal),
-      points: _polygonLatLngs,
-      strokeWidth: 2,
-      fillColor: Colors.transparent,
-    ));
-  }
-
-  void _setPolyline(List<PointLatLng> points) {
-    final String polylineIdVal = 'polyline_$_polylineIdCounter';
-    _polylineIdCounter++;
-    _polylines.add(
-      Polyline(
-        polylineId: PolylineId(polylineIdVal),
-        width: 2,
-        color: Colors.blue,
-        points: points
-            .map((point) => LatLng(point.latitude, point.longitude))
-            .toList(),
-      ),
-    );
-  }
-}
-
-//CALCULAR DISTANCIA ENTRE DOS PUNTOS
-double _calculateDistance(LatLng origin, LatLng destination) {
-  double lat1 = origin.latitude;
-  double lng1 = origin.longitude;
-  double lat2 = destination.latitude;
-  double lng2 = destination.longitude;
-
-  const int radius = 6371;
-
-  double dLat = _degreesToRadians(lat2 - lat1);
-  double dLng = _degreesToRadians(lng2 - lng1);
-
-  double a = sin(dLat / 2) * sin(dLat / 2) +
-      cos(_degreesToRadians(lat1)) *
-          cos(_degreesToRadians(lat2)) *
-          sin(dLng / 2) *
-          sin(dLng / 2);
-  double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-  double distance = radius * c;
-
-  return distance;
-}
-
-double _degreesToRadians(double degrees) {
-  return degrees * (pi / 180);
 }
 
 class MenuSpeedDial extends StatelessWidget {
